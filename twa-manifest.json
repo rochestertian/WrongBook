@@ -1,0 +1,43 @@
+
+{
+  "schemaVersion": 1,
+  "packageId": "com.rochester.wrongnotebook",
+  "host": "rochestertian.github.io",
+  "name": "错题本",
+  "launcherName": "错题本",
+  "display": "standalone",
+  "themeColor": "#34495e",
+  "navigationColor": "#34495e",
+  "navigationColorDark": "#1e293b",
+  "navigationDividerColor": "#000000",
+  "navigationDividerColorDark": "#000000",
+  "backgroundColor": "#ffffff",
+  "enableNotifications": true,
+  "startUrl": "/WrongBook/",
+  "iconUrl": "https://raw.githubusercontent.com/rochestertian/WrongBook/main/logo.png",
+  "maskableIconUrl": "https://raw.githubusercontent.com/rochestertian/WrongBook/main/logo.png",
+  "splashScreenFadeOutDuration": 300,
+  "signingKey": {
+    "path": "./my-release-key.keystore",
+    "alias": "my-key-alias"
+  },
+  "appVersionName": "1.0.9",
+  "appVersionCode": 10,
+  "shortcuts": [],
+  "generatorApp": "bubblewrap-cli",
+  "webManifestUrl": "https://rochestertian.github.io/WrongBook/manifest.json",
+  "fallbackType": "customtabs",
+  "features": {
+    "locationDelegation": true,
+    "playBilling": false
+  },
+  "alphaDependencies": {
+    "enabled": false
+  },
+  "enableSiteSettingsShortcut": true,
+  "orientation": "portrait",
+  "fingerprints": [],
+  "additionalTrustedOrigins": [],
+  "retainedBundles": [],
+  "isBundle": false
+}

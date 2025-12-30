@@ -1,0 +1,8 @@
+{
+  "name": "错题本 (Wrong Notebook)",
+  "short_name": "错题本",
+  "description": "一个简洁高效的错题本应用，支持拍照上传、分类管理、复习提醒。",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}

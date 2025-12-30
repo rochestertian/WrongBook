@@ -1,0 +1,257 @@
+
+name: Build Android APK (Native WebView)
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Accept Android Licenses
+        run: yes | sdkmanager --licenses || true
+
+      # 强制锁定 Gradle 版本，避免环境不一致
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.5
+
+      - name: Prepare Android Project
+        run: |
+          mkdir -p android/app/src/main/java/com/rochester/wrongnotebook
+          mkdir -p android/app/src/main/res/values
+          mkdir -p android/app/src/main/res/menu
+          mkdir -p android/app/src/main/res/xml
+          mkdir -p android/app/src/main/res/drawable
+
+          # 处理图标：如果根目录存在 logo.png，则将其作为应用图标
+          if [ -f "logo.png" ]; then
+            cp logo.png android/app/src/main/res/drawable/logo.png
+            echo "Logo file found and copied to drawable resources."
+          else
+            echo "Warning: logo.png not found in root. Using default Android icon."
+          fi
+
+          # 1. 基础配置
+          cat <<'EOF' > android/gradle.properties
+          android.useAndroidX=true
+          android.nonTransitiveRClass=true
+          EOF
+
+          cat <<'EOF' > android/settings.gradle
+          pluginManagement {
+              repositories { google(); mavenCentral(); gradlePluginPortal() }
+          }
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories { google(); mavenCentral() }
+          }
+          rootProject.name = "WrongNotebook"
+          include ':app'
+          EOF
+
+          cat <<'EOF' > android/build.gradle
+          buildscript {
+              repositories { google(); mavenCentral() }
+              dependencies { 
+                  classpath 'com.android.tools.build:gradle:8.2.2'
+                  classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.22"
+              }
+          }
+          EOF
+
+          # 2. App 模块逻辑
+          cat <<'EOF' > android/app/build.gradle
+          plugins { id 'com.android.application'; id 'kotlin-android' }
+          android {
+              namespace 'com.rochester.wrongnotebook'
+              compileSdk 34
+              defaultConfig {
+                  applicationId "com.rochester.wrongnotebook"
+                  minSdk 24
+                  targetSdk 34
+                  versionCode 23
+                  versionName "2.3.0"
+              }
+              buildTypes {
+                  release {
+                      minifyEnabled false
+                  }
+              }
+              compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+              kotlinOptions { jvmTarget = '17' }
+          }
+          dependencies {
+              implementation 'androidx.appcompat:appcompat:1.6.1'
+              implementation 'com.google.android.material:material:1.9.0'
+              implementation 'androidx.webkit:webkit:1.7.0'
+              implementation 'androidx.activity:activity-ktx:1.8.0'
+          }
+          EOF
+
+          # 3. 资源文件
+          cat <<'EOF' > android/app/src/main/res/values/themes.xml
+          <resources>
+              <style name="Theme.App" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+                  <item name="android:statusBarColor">#34495e</item>
+                  <item name="android:windowLightStatusBar">false</item>
+              </style>
+          </resources>
+          EOF
+
+          # 4. 权限与清单 (更新：使用 @drawable/logo)
+          cat <<'EOF' > android/app/src/main/AndroidManifest.xml
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <uses-permission android:name="android.permission.INTERNET" />
+              <uses-permission android:name="android.permission.CAMERA" />
+              <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+              <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
+              
+              <application
+                  android:label="错题本"
+                  android:icon="@drawable/logo"
+                  android:roundIcon="@drawable/logo"
+                  android:theme="@style/Theme.App"
+                  android:usesCleartextTraffic="true">
+                  <activity 
+                      android:name=".MainActivity" 
+                      android:exported="true"
+                      android:configChanges="orientation|screenSize|keyboardHidden|uiMode">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          EOF
+
+          # 5. MainActivity.kt
+          cat <<'EOF' > android/app/src/main/java/com/rochester/wrongnotebook/MainActivity.kt
+          package com.rochester.wrongnotebook
+          import android.content.Context
+          import android.content.Intent
+          import android.net.Uri
+          import android.os.Bundle
+          import android.webkit.*
+          import android.widget.EditText
+          import androidx.activity.result.contract.ActivityResultContracts
+          import androidx.appcompat.app.AlertDialog
+          import androidx.appcompat.app.AppCompatActivity
+
+          class MainActivity : AppCompatActivity() {
+              private lateinit var webView: WebView
+              private var filePathCallback: ValueCallback<Array<Uri>>? = null
+              
+              private val PREFS_NAME = "AppConfig"
+              private val KEY_URL = "target_url"
+              private val DEFAULT_URL = "http://192.168.1.2:3000"
+
+              private val fileChooserLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+                  if (result.resultCode == RESULT_OK) {
+                      val data = result.data
+                      val results = WebChromeClient.FileChooserParams.parseResult(result.resultCode, data)
+                      filePathCallback?.onReceiveValue(results)
+                  } else {
+                      filePathCallback?.onReceiveValue(null)
+                  }
+                  filePathCallback = null
+              }
+
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+                  webView = WebView(this)
+                  setupWebView()
+                  
+                  val targetUrl = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                      .getString(KEY_URL, DEFAULT_URL) ?: DEFAULT_URL
+                  
+                  webView.loadUrl(targetUrl)
+                  setContentView(webView)
+              }
+
+              private fun setupWebView() {
+                  webView.settings.apply {
+                      javaScriptEnabled = true
+                      domStorageEnabled = true
+                      useWideViewPort = true
+                      loadWithOverviewMode = true
+                      allowFileAccess = true
+                      mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+                  }
+
+                  webView.webViewClient = object : WebViewClient() {
+                      override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
+                          if (request?.isForMainFrame == true) {
+                              showUrlConfigDialog("无法访问服务器，请检查地址")
+                          }
+                      }
+                  }
+
+                  webView.webChromeClient = object : WebChromeClient() {
+                      override fun onShowFileChooser(wv: WebView?, fpc: ValueCallback<Array<Uri>>?, params: FileChooserParams?): Boolean {
+                          filePathCallback = fpc
+                          val intent = params?.createIntent()
+                          fileChooserLauncher.launch(intent)
+                          return true
+                      }
+                  }
+                  
+                  webView.setOnLongClickListener {
+                      showUrlConfigDialog("修改服务器地址")
+                      true
+                  }
+              }
+
+              private fun showUrlConfigDialog(title: String) {
+                  val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                  val currentUrl = prefs.getString(KEY_URL, DEFAULT_URL) ?: DEFAULT_URL
+                  val input = EditText(this)
+                  input.setText(currentUrl)
+
+                  AlertDialog.Builder(this)
+                      .setTitle(title)
+                      .setView(input)
+                      .setPositiveButton("保存并刷新") { _, _ ->
+                          val newUrl = input.text.toString().trim()
+                          if (newUrl.isNotEmpty()) {
+                              prefs.edit().putString(KEY_URL, newUrl).apply()
+                              webView.loadUrl(newUrl)
+                          }
+                      }
+                      .setNegativeButton("取消") { _, _ -> filePathCallback?.onReceiveValue(null) }
+                      .show()
+              }
+
+              override fun onBackPressed() {
+                  if (webView.canGoBack()) webView.goBack() else super.onBackPressed()
+              }
+          }
+          EOF
+
+      - name: Build APK
+        run: |
+          cd android
+          gradle assembleDebug --no-daemon --stacktrace
+          
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: WrongBook-v2.3-WithLogo
+          path: android/app/build/outputs/apk/debug/app-debug.apk
